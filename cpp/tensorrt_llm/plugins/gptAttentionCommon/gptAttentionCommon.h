@@ -39,7 +39,9 @@ public:
         tensorrt_llm::kernels::PositionEmbeddingType position_embedding_type,
         int rotary_embedding_dim, // for RoPE. Use 0 for non-RoPE
         float rotary_embedding_base, tensorrt_llm::kernels::RotaryScalingType rotary_embedding_scale_type,
-        float rotary_embedding_scale, int rotary_embedding_max_positions, int tp_size, int tp_rank, // for ALiBi
+        float rotary_embedding_scale, int rotary_embedding_max_positions, float rotary_embedding_yarn_extrapolation_factor,
+        float rotary_embedding_yarn_attn_factor, float rotary_embedding_yarn_beta_fast, float rotary_embedding_yarn_beta_slow,
+        int tp_size, int tp_rank, // for ALiBi
         tensorrt_llm::kernels::ContextFMHAType context_fmha_type, bool multi_block_mode, int kv_cache_quant_mode,
         bool remove_input_padding, tensorrt_llm::kernels::AttentionMaskType mask_type, bool paged_kv_cache,
         int tokens_per_block, nvinfer1::DataType type, int32_t max_context_length, bool qkv_bias_enabled,
@@ -180,6 +182,10 @@ protected:
     tensorrt_llm::kernels::RotaryScalingType mRotaryEmbeddingScaleType;
     float mRotaryEmbeddingScale;
     int mRotaryEmbeddingMaxPositions;
+    float mRotaryEmbeddingYarnExtrapolationFactor;
+    float mRotaryEmbeddingYarnAttnFactor;
+    float mRotaryEmbeddingYarnBetaFast;
+    float mRotaryEmbeddingYarnBetaSlow;
     tensorrt_llm::kernels::PositionEmbeddingType mPositionEmbeddingType;
     bool mRemovePadding = false;
     tensorrt_llm::kernels::AttentionMaskType mMaskType;

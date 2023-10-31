@@ -118,7 +118,7 @@ class TestFunctional(unittest.TestCase):
         test_cases += list(
             product(['llama_attention'], [ContextFMHAType.disabled],
                     ['float32'], [2], [128], [8], [32], [2, 8], [False],
-                    [False], [1], [False], [10000.0, 1000000.0], [
+                    [False], [1], [False], [10000.0, 1000000.0, 10000.0], [
                         {
                             "type": "linear",
                             "factor": 3.0
@@ -126,6 +126,10 @@ class TestFunctional(unittest.TestCase):
                         {
                             "type": "dynamic",
                             "factor": 2.0
+                        },
+                        {
+                            "type": "yarn",
+                            "factor": 8.0
                         },
                     ]))
         return test_cases
@@ -293,7 +297,8 @@ class TestFunctional(unittest.TestCase):
                     if configuration.rope_scaling is not None:
                         rope_scale_type = {
                             "linear": RotaryScalingType.linear,
-                            "dynamic": RotaryScalingType.dynamic
+                            "dynamic": RotaryScalingType.dynamic,
+                            "yarn": RotaryScalingType.yarn
                         }[configuration.rope_scaling["type"]]
                         rope_scale = configuration.rope_scaling["factor"]
                 outputs = tensorrt_llm.functional.gpt_attention(
@@ -315,6 +320,10 @@ class TestFunctional(unittest.TestCase):
                     rotary_embedding_scale=rope_scale,
                     rotary_embedding_max_positions=configuration.
                     max_position_embeddings,
+                    rotary_embedding_yarn_extrapolation_factor=1,
+                    rotary_embedding_yarn_attn_factor=1,
+                    rotary_embedding_yarn_beta_fast=32,
+                    rotary_embedding_yarn_beta_slow=1,
                     position_embedding_type=position_embedding_type,
                     multi_block_mode=enable_multi_block_mmha,
                     kv_orig_quant_scale=kv_int8_quant_scale_tensor,

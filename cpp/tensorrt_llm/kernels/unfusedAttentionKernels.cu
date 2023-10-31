@@ -1257,6 +1257,8 @@ __global__ void add_fusedQKV_bias_transpose_kernel(T* q_buf, T* k_buf, T* v_buf,
     const int* seq_lens, const int* padding_offset, const int batch_size, const int seq_len, const int head_num,
     const int kv_head_num, const int size_per_head, const int rotary_embedding_dim, float rotary_embedding_base,
     RotaryScalingType const rotary_scale_type, float rotary_embedding_scale, const int rotary_embedding_max_positions,
+    const float rotary_embedding_yarn_extrapolation_factor, const float rotary_embedding_yarn_attn_factor,
+    const float rotary_embedding_yarn_beta_fast, const float rotary_embedding_yarn_beta_slow,
     PositionEmbeddingType const position_embedding_type)
 {
     // This kernel add bias to QKV, which has shape [batch_size, seq_len, 3, head_num, size_per_head], and
@@ -1328,10 +1330,15 @@ __global__ void add_fusedQKV_bias_transpose_kernel(T* q_buf, T* k_buf, T* v_buf,
 
     Vec_t q, k, v, zero;
     Vec_t q_bias, k_bias, v_bias;
+    float yarn_low = 0;
+    float yarn_high = 0;
+    float rotary_embedding_yarn_mscale = 1.0;
     if (valid_seq)
     {
-        mmha::update_rotary_base_n_scale(rotary_embedding_base, rotary_embedding_scale, rotary_scale_type,
-            rotary_embedding_dim, rotary_embedding_max_positions, actual_seq_len);
+        mmha::rotary_initialize(rotary_embedding_base, rotary_embedding_scale, rotary_scale_type,
+            rotary_embedding_dim, rotary_embedding_max_positions, actual_seq_len, yarn_low, yarn_high,
+            rotary_embedding_yarn_mscale, rotary_embedding_yarn_beta_fast, rotary_embedding_yarn_beta_slow,
+            rotary_embedding_yarn_attn_factor);
     }
 
 #pragma unroll
@@ -1365,7 +1372,9 @@ __global__ void add_fusedQKV_bias_transpose_kernel(T* q_buf, T* k_buf, T* v_buf,
     case PositionEmbeddingType::kROPE_GPTJ:
     {
         mmha::apply_rotary_embedding(
-            q, k, tidx, rotary_embedding_dim, rotary_embedding_base, rotary_embedding_scale, dst_kv_seq_idx);
+            q, k, tidx, rotary_embedding_dim, rotary_embedding_base, rotary_embedding_scale, dst_kv_seq_idx,
+            rotary_scale_type, rotary_embedding_max_positions, yarn_low, yarn_high,
+            rotary_embedding_yarn_extrapolation_factor, rotary_embedding_yarn_mscale);
         break;
     }
     case PositionEmbeddingType::kROPE_GPT_NEOX:
@@ -1396,7 +1405,8 @@ __global__ void add_fusedQKV_bias_transpose_kernel(T* q_buf, T* k_buf, T* v_buf,
             mmha::vec_from_smem_transpose(k, k_smem, transpose_idx, smem_pitch);
 
             mmha::apply_rotary_embedding(q, k, transpose_idx / tidx_factor, rotary_embedding_dim, rotary_embedding_base,
-                rotary_embedding_scale, dst_kv_seq_idx);
+                rotary_embedding_scale, dst_kv_seq_idx, rotary_scale_type, rotary_embedding_max_positions, yarn_low, yarn_high,
+                rotary_embedding_yarn_extrapolation_factor, rotary_embedding_yarn_mscale);
 
             mmha::write_smem_transpose(q, q_smem, transpose_idx, smem_pitch);
             mmha::write_smem_transpose(k, k_smem, transpose_idx, smem_pitch);
@@ -1474,15 +1484,18 @@ __global__ void add_fusedQKV_bias_transpose_kernel(T* q_buf, T* k_buf, T* v_buf,
     add_fusedQKV_bias_transpose_kernel<T, ADD_BIAS, USING_CONTEXT_FMHA><<<grid, block, smem_size, stream>>>(q_buf,     \
         k_buf, v_buf, QKV, qkv_bias, seq_lens, padding_offset, batch_size, seq_len, head_num, kv_head_num,             \
         size_per_head, rotary_embedding_dim, rotary_embedding_base, rotary_scale_type, rotary_embedding_scale,         \
-        rotary_embedding_max_positions, position_embedding_type);
+        rotary_embedding_max_positions, rotary_embedding_yarn_extrapolation_factor, rotary_embedding_yarn_attn_factor, \
+        rotary_embedding_yarn_beta_fast, rotary_embedding_yarn_beta_slow, position_embedding_type);
 
 template <typename T>
 void invokeAddFusedQKVBiasTranspose(T* q_buf, T* k_buf, T* v_buf, T* QKV, const T* qkv_bias, const int* seq_lens,
     const int* padding_offset, const int batch_size, const int seq_len, const int token_num, const int head_num,
     const int kv_head_num, const int size_per_head, const bool using_context_fmha, const int rotary_embedding_dim,
     const float rotary_embedding_base, const RotaryScalingType rotary_scale_type, const float rotary_embedding_scale,
-    const int rotary_embedding_max_positions, const PositionEmbeddingType position_embedding_type, const float* scale,
-    const int int8_mode, cudaStream_t stream)
+    const int rotary_embedding_max_positions, const float rotary_embedding_yarn_extrapolation_factor,
+    const float rotary_embedding_yarn_attn_factor, const float rotary_embedding_yarn_beta_fast,
+    const float rotary_embedding_yarn_beta_slow, const PositionEmbeddingType position_embedding_type,
+    const float* scale, const int int8_mode, cudaStream_t stream)
 {
     // [bs, seq_len, 3, head, Dh]
     if (rotary_embedding_dim == 0)
@@ -1556,6 +1569,8 @@ void invokeAddFusedQKVBiasTranspose(T* q_buf, T* k_buf, T* v_buf, T* QKV, const 
         const int head_num, const int kv_head_num, const int size_per_head, const bool using_context_fmha,             \
         const int rotary_embedding_dim, const float rotary_embedding_base, const RotaryScalingType rotary_scale_type,  \
         const float rotary_embedding_scale, const int rotary_embedding_max_poisitions,                                 \
+        const float rotary_embedding_yarn_extrapolation_factor, const float rotary_embedding_yarn_attn_factor,         \
+        const float rotary_embedding_yarn_beta_fast, const float rotary_embedding_yarn_beta_slow,                      \
         const PositionEmbeddingType position_embedding_type, const float* scale, const int int8_mode,                  \
         cudaStream_t stream)
 INSTANTIATE_ADDFUSEDQKVBIAS_TRANSPOSE(float);

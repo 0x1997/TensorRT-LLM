@@ -39,16 +39,20 @@ GPTAttentionPlugin::GPTAttentionPlugin(int num_heads, int num_kv_heads, int head
     float q_scaling, tensorrt_llm::kernels::PositionEmbeddingType position_embedding_type,
     int rotary_embedding_dim, // for RoPE. 0 for non-RoPE
     float rotary_embedding_base, tensorrt_llm::kernels::RotaryScalingType rotary_embedding_scale_type,
-    float rotary_embedding_scale, int rotary_embedding_max_positions, int tp_size, int tp_rank, // for ALiBi
+    float rotary_embedding_scale, int rotary_embedding_max_positions,
+    float rotary_embedding_yarn_extrapolation_factor, float rotary_embedding_yarn_attn_factor,
+    float rotary_embedding_yarn_beta_fast, float rotary_embedding_yarn_beta_slow,
+    int tp_size, int tp_rank, // for ALiBi
     tensorrt_llm::kernels::ContextFMHAType context_fmha_type, bool multi_block_mode, int kv_cache_quant_mode,
     bool remove_input_padding, tensorrt_llm::kernels::AttentionMaskType mask_type, bool paged_kv_cache,
     int tokens_per_block, nvinfer1::DataType type, int32_t max_context_length, bool qkv_bias_enabled,
     bool cross_attention, int max_distance)
     : GPTAttentionPluginCommon(num_heads, num_kv_heads, head_size, unidirectional, q_scaling, position_embedding_type,
         rotary_embedding_dim, rotary_embedding_base, rotary_embedding_scale_type, rotary_embedding_scale,
-        rotary_embedding_max_positions, tp_size, tp_rank, context_fmha_type, multi_block_mode, kv_cache_quant_mode,
-        remove_input_padding, mask_type, paged_kv_cache, tokens_per_block, type, max_context_length, qkv_bias_enabled,
-        cross_attention, max_distance)
+        rotary_embedding_max_positions, rotary_embedding_yarn_extrapolation_factor, rotary_embedding_yarn_attn_factor,
+        rotary_embedding_yarn_beta_fast, rotary_embedding_yarn_beta_slow, tp_size, tp_rank, context_fmha_type,
+        multi_block_mode, kv_cache_quant_mode, remove_input_padding, mask_type, paged_kv_cache, tokens_per_block,
+        type, max_context_length, qkv_bias_enabled, cross_attention, max_distance)
 {
 }
 
@@ -479,6 +483,10 @@ IPluginV2* GPTAttentionPluginCreator::createPlugin(const char* name, const Plugi
             static_cast<RotaryScalingType>(p.getScalar<int8_t>("rotary_embedding_scale_type").value()),
             p.getScalar<float>("rotary_embedding_scale").value(),
             p.getScalar<int32_t>("rotary_embedding_max_positions").value(),
+            p.getScalar<float>("rotary_embedding_yarn_extrapolation_factor").value(),
+            p.getScalar<float>("rotary_embedding_yarn_attn_factor").value(),
+            p.getScalar<float>("rotary_embedding_yarn_beta_fast").value(),
+            p.getScalar<float>("rotary_embedding_yarn_beta_slow").value(),
             static_cast<int32_t>(p.getScalar<int32_t>("tp_size").value()),
             static_cast<int32_t>(p.getScalar<int32_t>("tp_rank").value()),
             static_cast<ContextFMHAType>(p.getScalar<int8_t>("context_fmha_type").value()),

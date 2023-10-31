@@ -107,7 +107,7 @@ ubuntu22_%: BASE_IMAGE = nvidia/cuda
 ubuntu22_%: BASE_TAG = 12.2.0-devel-ubuntu22.04
 
 old-cuda_%: IMAGE_WITH_TAG = $(shell grep 'LLM_OLD_CUDA_DOCKER_IMAGE = ' ../jenkins/L0_MergeRequest.groovy | grep -o '".*"' | tr -d '"')
-old-cuda_%: BASE_TAG = 23.07-py3
+old-cuda_%: BASE_TAG = 23.10-py3
 old-cuda_%: STAGE = devel
 
 build: devel_build ;

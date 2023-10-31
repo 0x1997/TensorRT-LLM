@@ -398,7 +398,7 @@ def parse_arguments():
             "type": args.rotary_scaling[0],
             "factor": float(args.rotary_scaling[1])
         }
-        assert rotary_scaling["type"] in ["linear", "dynamic"]
+        assert rotary_scaling["type"] in ["linear", "dynamic", "yarn"]
         assert rotary_scaling["factor"] > 1.0
         args.rotary_scaling = rotary_scaling
         if rotary_scaling["type"] == "dynamic":

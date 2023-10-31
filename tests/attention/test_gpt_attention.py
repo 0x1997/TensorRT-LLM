@@ -156,7 +156,7 @@ class TestFunctional(unittest.TestCase):
                 [1],
                 [False],
                 [False],
-                [10000.0, 1000000.0],  # rope base
+                [10000.0, 1000000.0, 10000.0],  # rope base
                 [  # rope scaling
                     {
                         "type": "linear",
@@ -165,6 +165,10 @@ class TestFunctional(unittest.TestCase):
                     {
                         "type": "dynamic",
                         "factor": 2.0
+                    },
+                    {
+                        "type": "yarn",
+                        "factor": 8.0
                     },
                 ]))
 
@@ -357,7 +361,8 @@ class TestFunctional(unittest.TestCase):
                     if configuration.rope_scaling is not None:
                         rope_scale_type = {
                             "linear": RotaryScalingType.linear,
-                            "dynamic": RotaryScalingType.dynamic
+                            "dynamic": RotaryScalingType.dynamic,
+                            "yarn": RotaryScalingType.yarn
                         }[configuration.rope_scaling["type"]]
                         rope_scale = configuration.rope_scaling["factor"]
                 outputs = tensorrt_llm.functional.gpt_attention(
@@ -379,6 +384,10 @@ class TestFunctional(unittest.TestCase):
                     rotary_embedding_scale=rope_scale,
                     rotary_embedding_max_positions=configuration.
                     max_position_embeddings,
+                    rotary_embedding_yarn_extrapolation_factor=1,
+                    rotary_embedding_yarn_attn_factor=1,
+                    rotary_embedding_yarn_beta_fast=32,
+                    rotary_embedding_yarn_beta_slow=1,
                     position_embedding_type=position_embedding_type,
                     multi_block_mode=enable_multi_block_mmha,
                     kv_orig_quant_scale=kv_quant_scale_tensor,

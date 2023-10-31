@@ -1446,11 +1446,15 @@ __global__ void masked_multihead_attention_kernel(
     zero(k_bias);
     float rotary_embedding_base = params.rotary_embedding_base;
     float rotary_embedding_scale = params.rotary_embedding_scale;
+    float yarn_low;
+    float yarn_high;
+    float yarn_mscale;
     if (is_valid_qk_vec)
     {
-        mmha::update_rotary_base_n_scale(rotary_embedding_base, rotary_embedding_scale,
+        mmha::rotary_initialize(rotary_embedding_base, rotary_embedding_scale,
             params.rotary_embedding_scale_type, params.rotary_embedding_dim, params.rotary_embedding_max_positions,
-            tlength);
+            tlength, yarn_low, yarn_high, yarn_mscale, params.rotary_embedding_yarn_beta_fast,
+            params.rotary_embedding_yarn_beta_slow, params.rotary_embedding_yarn_attn_factor);
         // Query
         // The stride between tokens. We may be able to always use params.stride.
         uint32_t q_stride = params.stride ? static_cast<uint32_t>(params.stride) : (num_heads * Dh);
@@ -1558,12 +1562,16 @@ __global__ void masked_multihead_attention_kernel(
         if (HANDLE_KV)
         {
             apply_rotary_embedding(q, k, tidx, params.rotary_embedding_dim, params.rotary_embedding_base,
-                params.rotary_embedding_scale, tlength);
+                params.rotary_embedding_scale, tlength, params.rotary_embedding_scale_type,
+                params.rotary_embedding_max_positions, yarn_low, yarn_high,
+                params.rotary_embedding_yarn_extrapolation_factor, yarn_mscale);
         }
         else
         {
             apply_rotary_embedding(q, tidx, params.rotary_embedding_dim, params.rotary_embedding_base,
-                params.rotary_embedding_scale, tlength);
+                params.rotary_embedding_scale, tlength, params.rotary_embedding_scale_type,
+                params.rotary_embedding_max_positions, yarn_low, yarn_high,
+                params.rotary_embedding_yarn_extrapolation_factor, yarn_mscale);
         }
         break;
     }
@@ -1602,14 +1610,18 @@ __global__ void masked_multihead_attention_kernel(
                 mmha::vec_from_smem_transpose(k, k_smem, transpose_idx, smem_pitch);
 
                 mmha::apply_rotary_embedding(q, k, transpose_idx / tidx_factor, params.rotary_embedding_dim,
-                    rotary_embedding_base, rotary_embedding_scale, tlength);
+                    rotary_embedding_base, rotary_embedding_scale, tlength, params.rotary_embedding_scale_type,
+                    params.rotary_embedding_max_positions, yarn_low, yarn_high,
+                    params.rotary_embedding_yarn_extrapolation_factor, yarn_mscale);
 
                 mmha::write_smem_transpose(k, k_smem, transpose_idx, smem_pitch);
             }
             else
             {
                 mmha::apply_rotary_embedding(q, transpose_idx / tidx_factor, params.rotary_embedding_dim,
-                    rotary_embedding_base, rotary_embedding_scale, tlength);
+                    rotary_embedding_base, rotary_embedding_scale, tlength, params.rotary_embedding_scale_type,
+                    params.rotary_embedding_max_positions, yarn_low, yarn_high,
+                    params.rotary_embedding_yarn_extrapolation_factor, yarn_mscale);
             }
             mmha::write_smem_transpose(q, q_smem_, transpose_idx, smem_pitch);
         }

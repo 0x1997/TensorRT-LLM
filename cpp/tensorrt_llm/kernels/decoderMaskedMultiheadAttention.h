@@ -119,6 +119,10 @@ struct Multihead_attention_params_base
     RotaryScalingType rotary_embedding_scale_type = RotaryScalingType::kNONE;
     float rotary_embedding_scale = 0.0f;
     int rotary_embedding_max_positions = 0;
+    float rotary_embedding_yarn_extrapolation_factor = 1;
+    float rotary_embedding_yarn_attn_factor = 1;
+    float rotary_embedding_yarn_beta_fast = 32;
+    float rotary_embedding_yarn_beta_slow = 1;
     // The current timestep. TODO Check that do we only this param in cross attention?
     int timestep = 0;
     // The current timestep of each sentences (support different timestep for different sentences)

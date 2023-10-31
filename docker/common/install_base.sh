@@ -15,6 +15,7 @@ set_bash_env() {
 }
 
 init_ubuntu() {
+    sed -i 's|http://archive.ubuntu.com/ubuntu|https://mirrors.tuna.tsinghua.edu.cn/ubuntu|g' /etc/apt/sources.list
     apt-get update
     apt-get install -y --no-install-recommends \
       ccache \
@@ -37,6 +38,7 @@ init_ubuntu() {
     if [[ $(apt list --installed | grep tensorrt) ]]; then
         apt-get remove --purge -y tensorrt*
     fi
+    pip config --global set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
     pip uninstall -y tensorrt
     pip install mpi4py
 }

@@ -294,9 +294,8 @@ class Attention(Module):
         self.rotary_embedding_scale_type = RotaryScalingType.none
         self.rotary_embedding_scale = 1.0
         if rotary_embedding_scaling is not None:
-            assert rotary_embedding_scaling["type"] in ["linear", "dynamic"]
-            self.rotary_embedding_scale_type = RotaryScalingType.linear if rotary_embedding_scaling[
-                "type"] == "linear" else RotaryScalingType.dynamic
+            assert rotary_embedding_scaling["type"] in ["linear", "dynamic", "yarn"]
+            self.rotary_embedding_scale_type = RotaryScalingType[rotary_embedding_scaling["type"]]
             self.rotary_embedding_scale = rotary_embedding_scaling["factor"]
             assert self.rotary_embedding_scale > 1.0
 

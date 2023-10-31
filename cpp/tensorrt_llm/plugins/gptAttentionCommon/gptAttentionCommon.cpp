@@ -82,6 +82,10 @@ struct FusedQKVMaskedAttentionDispatchParams
     RotaryScalingType rotary_embedding_scale_type;
     float rotary_embedding_scale;
     int rotary_embedding_max_positions;
+    float rotary_embedding_yarn_extrapolation_factor;
+    float rotary_embedding_yarn_attn_factor;
+    float rotary_embedding_yarn_beta_fast;
+    float rotary_embedding_yarn_beta_slow;
     PositionEmbeddingType position_embedding_type;
     int max_seq_len;
     const int* input_lengths;
@@ -169,6 +173,10 @@ void fusedQKV_masked_attention_dispatch(Multihead_attention_params<T_MMHA, CROSS
     params.rotary_embedding_scale_type = input_params.rotary_embedding_scale_type;
     params.rotary_embedding_scale = input_params.rotary_embedding_scale;
     params.rotary_embedding_max_positions = input_params.rotary_embedding_max_positions;
+    params.rotary_embedding_yarn_extrapolation_factor = input_params.rotary_embedding_yarn_extrapolation_factor;
+    params.rotary_embedding_yarn_attn_factor = input_params.rotary_embedding_yarn_attn_factor;
+    params.rotary_embedding_yarn_beta_fast = input_params.rotary_embedding_yarn_beta_fast;
+    params.rotary_embedding_yarn_beta_slow = input_params.rotary_embedding_yarn_beta_slow;
     params.position_embedding_type = input_params.position_embedding_type;
     // Note: keep norm factor (sqrt(K_dim)) when adopting megatron T5 structure (may adjust)
     params.inv_sqrt_dh = 1.F / (sqrtf((float) params.hidden_size_per_head) * input_params.q_scaling);
@@ -235,7 +243,9 @@ GPTAttentionPluginCommon::GPTAttentionPluginCommon(int num_heads, int num_kv_hea
     float q_scaling, tensorrt_llm::kernels::PositionEmbeddingType position_embedding_type,
     int rotary_embedding_dim, // for RoPE. Use 0 for non-RoPE
     float rotary_embedding_base, tensorrt_llm::kernels::RotaryScalingType rotary_embedding_scale_type,
-    float rotary_embedding_scale, int rotary_embedding_max_positions, int tp_size, int tp_rank, // for ALiBi
+    float rotary_embedding_scale, int rotary_embedding_max_positions, float rotary_embedding_yarn_extrapolation_factor,
+    float rotary_embedding_yarn_attn_factor, float rotary_embedding_yarn_beta_fast, float rotary_embedding_yarn_beta_slow,
+    int tp_size, int tp_rank, // for ALiBi
     tensorrt_llm::kernels::ContextFMHAType context_fmha_type, bool multi_block_mode, int kv_cache_quant_mode,
     bool remove_input_padding, tensorrt_llm::kernels::AttentionMaskType mask_type, bool paged_kv_cache,
     int tokens_per_block, nvinfer1::DataType type, int32_t max_context_length, bool qkv_bias_enabled,
@@ -250,6 +260,10 @@ GPTAttentionPluginCommon::GPTAttentionPluginCommon(int num_heads, int num_kv_hea
     , mRotaryEmbeddingScaleType(rotary_embedding_scale_type)
     , mRotaryEmbeddingScale(rotary_embedding_scale)
     , mRotaryEmbeddingMaxPositions(rotary_embedding_max_positions)
+    , mRotaryEmbeddingYarnExtrapolationFactor(rotary_embedding_yarn_extrapolation_factor)
+    , mRotaryEmbeddingYarnAttnFactor(rotary_embedding_yarn_attn_factor)
+    , mRotaryEmbeddingYarnBetaFast(rotary_embedding_yarn_beta_fast)
+    , mRotaryEmbeddingYarnBetaSlow(rotary_embedding_yarn_beta_slow)
     , mPositionEmbeddingType(position_embedding_type)
     , mEnableContextFMHA(context_fmha_type != ContextFMHAType::DISABLED)
     , mFMHAForceFP32Acc(context_fmha_type == ContextFMHAType::ENABLED_WITH_FP32_ACC || type == DataType::kBF16)
@@ -299,6 +313,10 @@ GPTAttentionPluginCommon::GPTAttentionPluginCommon(const void* data, size_t leng
     read(d, mRotaryEmbeddingScaleType);
     read(d, mRotaryEmbeddingScale);
     read(d, mRotaryEmbeddingMaxPositions);
+    read(d, mRotaryEmbeddingYarnExtrapolationFactor);
+    read(d, mRotaryEmbeddingYarnAttnFactor);
+    read(d, mRotaryEmbeddingYarnBetaFast);
+    read(d, mRotaryEmbeddingYarnBetaSlow);
     read(d, mTpSize);
     read(d, mTpRank);
     read(d, mEnableContextFMHA);
@@ -565,8 +583,9 @@ int GPTAttentionPluginCommon::enqueueContext(const EnqueueContextParams<T, KVCac
             const_cast<T*>(params.qkv_bias), params.context_lengths, mRemovePadding ? padding_offset : nullptr,
             params.batch_size, params.input_seq_length, params.num_tokens, mNumHeads, mNumKVHeads, getHeadSize(),
             mRotaryEmbeddingDim, mRotaryEmbeddingBase, mRotaryEmbeddingScaleType, mRotaryEmbeddingScale,
-            mRotaryEmbeddingMaxPositions, position_embedding_type, (float*) nullptr, 0, cache_type,
-            params.kv_scale_orig_quant, stream);
+            mRotaryEmbeddingMaxPositions, mRotaryEmbeddingYarnExtrapolationFactor, mRotaryEmbeddingYarnAttnFactor,
+            mRotaryEmbeddingYarnBetaFast, mRotaryEmbeddingYarnBetaSlow, position_embedding_type, (float*) nullptr,
+            0, cache_type, params.kv_scale_orig_quant, stream);
         mFMHARunner->setup(params.batch_size, params.input_seq_length, params.num_tokens, isALiBi(), isAliBiWithScale(),
             mTpSize, mTpRank);
         mFMHARunner->run(const_cast<T*>(params.attention_input), cu_seqlens, params.context_buf, stream);
@@ -586,8 +605,9 @@ int GPTAttentionPluginCommon::enqueueContext(const EnqueueContextParams<T, KVCac
                 const_cast<T*>(params.qkv_bias), params.context_lengths, mRemovePadding ? padding_offset : nullptr,
                 params.batch_size, params.input_seq_length, params.num_tokens, mNumHeads, mNumKVHeads, getHeadSize(),
                 mEnableContextFMHA, mRotaryEmbeddingDim, mRotaryEmbeddingBase, mRotaryEmbeddingScaleType,
-                mRotaryEmbeddingScale, mRotaryEmbeddingMaxPositions, position_embedding_type, (float*) nullptr, 0,
-                stream);
+                mRotaryEmbeddingScale, mRotaryEmbeddingMaxPositions, mRotaryEmbeddingYarnExtrapolationFactor,
+                mRotaryEmbeddingYarnAttnFactor, mRotaryEmbeddingYarnBetaFast, mRotaryEmbeddingYarnBetaSlow,
+                position_embedding_type, (float*) nullptr, 0, stream);
         }
         else
         {
@@ -597,14 +617,17 @@ int GPTAttentionPluginCommon::enqueueContext(const EnqueueContextParams<T, KVCac
                 const_cast<T*>(params.qkv_bias), params.context_lengths, mRemovePadding ? padding_offset : nullptr,
                 params.batch_size, params.input_seq_length, params.num_tokens, mNumHeads, mNumKVHeads, getHeadSize(),
                 mEnableContextFMHA, mRotaryEmbeddingDim, mRotaryEmbeddingBase, mRotaryEmbeddingScaleType,
-                mRotaryEmbeddingScale, mRotaryEmbeddingMaxPositions, position_embedding_type, (float*) nullptr, 0,
-                stream);
+                mRotaryEmbeddingScale, mRotaryEmbeddingMaxPositions, mRotaryEmbeddingYarnExtrapolationFactor,
+                mRotaryEmbeddingYarnAttnFactor, mRotaryEmbeddingYarnBetaFast, mRotaryEmbeddingYarnBetaSlow,
+                position_embedding_type, (float*) nullptr, 0, stream);
             invokeAddFusedQKVBiasTranspose((T*) nullptr, k_buf_2_, v_buf_2_, const_cast<T*>(params.cross_qkv),
                 const_cast<T*>(params.qkv_bias), params.encoder_input_lengths,
                 mRemovePadding ? padding_offset : nullptr, params.batch_size, params.cross_qkv_length,
                 params.num_encoder_tokens, mNumHeads, mNumKVHeads, getHeadSize(), mEnableContextFMHA,
                 mRotaryEmbeddingDim, mRotaryEmbeddingBase, mRotaryEmbeddingScaleType, mRotaryEmbeddingScale,
-                mRotaryEmbeddingMaxPositions, position_embedding_type, (float*) nullptr, 0, stream);
+                mRotaryEmbeddingMaxPositions, mRotaryEmbeddingYarnExtrapolationFactor, mRotaryEmbeddingYarnAttnFactor,
+                mRotaryEmbeddingYarnBetaFast, mRotaryEmbeddingYarnBetaSlow, position_embedding_type, (float*) nullptr, 0,
+                stream);
         }
         sync_check_cuda_error();
 
@@ -946,6 +969,10 @@ int GPTAttentionPluginCommon::enqueueGeneration(
     dispatch_params.rotary_embedding_scale_type = mRotaryEmbeddingScaleType;
     dispatch_params.rotary_embedding_scale = mRotaryEmbeddingScale;
     dispatch_params.rotary_embedding_max_positions = mRotaryEmbeddingMaxPositions;
+    dispatch_params.rotary_embedding_yarn_extrapolation_factor = mRotaryEmbeddingYarnExtrapolationFactor;
+    dispatch_params.rotary_embedding_yarn_attn_factor = mRotaryEmbeddingYarnAttnFactor;
+    dispatch_params.rotary_embedding_yarn_beta_fast = mRotaryEmbeddingYarnBetaFast;
+    dispatch_params.rotary_embedding_yarn_beta_slow = mRotaryEmbeddingYarnBetaSlow;
     dispatch_params.cross_attention = mCrossAttention;
     dispatch_params.memory_length_per_sample = params.encoder_input_lengths;
 
@@ -1028,6 +1055,8 @@ size_t GPTAttentionPluginCommon::getCommonSerializationSize() noexcept
     return sizeof(mNumHeads) + sizeof(mNumKVHeads) + sizeof(mHeadSize) + sizeof(mUnidirectional) + sizeof(mQScaling)
         + sizeof(mPositionEmbeddingType) + sizeof(mRotaryEmbeddingDim) + sizeof(mRotaryEmbeddingBase)
         + sizeof(mRotaryEmbeddingScaleType) + sizeof(mRotaryEmbeddingScale) + sizeof(mRotaryEmbeddingMaxPositions)
+        + sizeof(mRotaryEmbeddingYarnExtrapolationFactor) + sizeof(mRotaryEmbeddingYarnAttnFactor)
+        + sizeof(mRotaryEmbeddingYarnBetaFast) + sizeof(mRotaryEmbeddingYarnBetaSlow)
         + sizeof(mTpSize) + sizeof(mTpRank) + sizeof(mEnableContextFMHA) + sizeof(mFMHAForceFP32Acc)
         + sizeof(mMultiBlockMode) + sizeof(unsigned int) // mKVCacheQuantMode
         + sizeof(mRemovePadding) + sizeof(mMaskType) + sizeof(mPagedKVCache) + sizeof(mTokensPerBlock) + sizeof(mType)
@@ -1048,6 +1077,10 @@ void GPTAttentionPluginCommon::serializeCommon(void* buffer) const noexcept
     write(d, mRotaryEmbeddingScaleType);
     write(d, mRotaryEmbeddingScale);
     write(d, mRotaryEmbeddingMaxPositions);
+    write(d, mRotaryEmbeddingYarnExtrapolationFactor);
+    write(d, mRotaryEmbeddingYarnAttnFactor);
+    write(d, mRotaryEmbeddingYarnBetaFast);
+    write(d, mRotaryEmbeddingYarnBetaSlow);
     write(d, mTpSize);
     write(d, mTpRank);
     write(d, mEnableContextFMHA);
@@ -1088,6 +1121,10 @@ GPTAttentionPluginCreatorCommon::GPTAttentionPluginCreatorCommon()
     mPluginAttributes.emplace_back(PluginField("rotary_embedding_scale_type", nullptr, PluginFieldType::kINT8, 0));
     mPluginAttributes.emplace_back(PluginField("rotary_embedding_scale", nullptr, PluginFieldType::kFLOAT32, 0));
     mPluginAttributes.emplace_back(PluginField("rotary_embedding_max_positions", nullptr, PluginFieldType::kINT32, 0));
+    mPluginAttributes.emplace_back(PluginField("rotary_embedding_yarn_extrapolation_factor", nullptr, PluginFieldType::kFLOAT32, 0));
+    mPluginAttributes.emplace_back(PluginField("rotary_embedding_yarn_attn_factor", nullptr, PluginFieldType::kFLOAT32, 0));
+    mPluginAttributes.emplace_back(PluginField("rotary_embedding_yarn_beta_fast", nullptr, PluginFieldType::kFLOAT32, 0));
+    mPluginAttributes.emplace_back(PluginField("rotary_embedding_yarn_beta_slow", nullptr, PluginFieldType::kFLOAT32, 0));
     mPluginAttributes.emplace_back(PluginField("tp_size", nullptr, PluginFieldType::kINT32, 0));
     mPluginAttributes.emplace_back(PluginField("tp_rank", nullptr, PluginFieldType::kINT32, 0));
     mPluginAttributes.emplace_back(PluginField("context_fmha_type", nullptr, PluginFieldType::kINT8, 0));

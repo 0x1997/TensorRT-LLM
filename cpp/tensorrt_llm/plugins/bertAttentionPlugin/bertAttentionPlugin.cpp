@@ -232,8 +232,8 @@ int BertAttentionPlugin::enqueueImpl(const nvinfer1::PluginTensorDesc* inputDesc
     // Padding offset = nullptr here (remove padding is not supported).
     invokeAddFusedQKVBiasTranspose(q_buf_2_, k_buf_2_, v_buf_2_, const_cast<T*>(attention_input), input_lengths,
         nullptr, request_batch_size, request_seq_len, batch_size * input_seq_len, mNumHeads, mNumHeads, mHeadSize,
-        mEnableContextFMHA, 0, 0.0f, RotaryScalingType::kNONE, 0.0f, 0, PositionEmbeddingType::kLEARNED_ABSOLUTE,
-        (float*) nullptr, 0, stream);
+        mEnableContextFMHA, 0, 0.0f, RotaryScalingType::kNONE, 0.0f, 0, 1.0f, 1.0f, 32.0f, 1.0f,
+        PositionEmbeddingType::kLEARNED_ABSOLUTE, (float*) nullptr, 0, stream);
 
     const auto gemm_data_type = tc::CudaDataType<T>::value;
     const int attention_seq_len_1 = request_seq_len; // q length

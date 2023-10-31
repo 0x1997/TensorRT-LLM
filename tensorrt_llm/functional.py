@@ -573,6 +573,7 @@ class RotaryScalingType(IntEnum):
     none = 0
     linear = 1
     dynamic = 2
+    yarn = 3
 
 
 class PositionEmbeddingType(IntEnum):
@@ -3063,6 +3064,10 @@ def gpt_attention(
         rotary_embedding_scale_type: RotaryScalingType = RotaryScalingType.none,
         rotary_embedding_scale: float = 1.0,
         rotary_embedding_max_positions: int = 1024,
+        rotary_embedding_yarn_extrapolation_factor = 1,
+        rotary_embedding_yarn_attn_factor = 1,
+        rotary_embedding_yarn_beta_fast = 32,
+        rotary_embedding_yarn_beta_slow = 1,
         position_embedding_type: PositionEmbeddingType = PositionEmbeddingType.
     learned_absolute,
         multi_block_mode: bool = False,
@@ -3288,6 +3293,22 @@ def gpt_attention(
         "rotary_embedding_max_positions",
         np.array(rotary_embedding_max_positions, dtype=np.int32),
         trt.PluginFieldType.INT32)
+    rotary_embedding_yarn_extrapolation_factor = trt.PluginField(
+        "rotary_embedding_yarn_extrapolation_factor",
+        np.array(rotary_embedding_yarn_extrapolation_factor, dtype=np.float32),
+        trt.PluginFieldType.FLOAT32)
+    rotary_embedding_yarn_attn_factor = trt.PluginField(
+        "rotary_embedding_yarn_attn_factor",
+        np.array(rotary_embedding_yarn_attn_factor, dtype=np.float32),
+        trt.PluginFieldType.FLOAT32)
+    rotary_embedding_yarn_beta_fast = trt.PluginField(
+        "rotary_embedding_yarn_beta_fast",
+        np.array(rotary_embedding_yarn_beta_fast, dtype=np.float32),
+        trt.PluginFieldType.FLOAT32)
+    rotary_embedding_yarn_beta_slow = trt.PluginField(
+        "rotary_embedding_yarn_beta_slow",
+        np.array(rotary_embedding_yarn_beta_slow, dtype=np.float32),
+        trt.PluginFieldType.FLOAT32)
     position_embedding_type = trt.PluginField(
         "position_embedding_type",
         np.array(int(position_embedding_type), dtype=np.int8),
@@ -3348,7 +3369,9 @@ def gpt_attention(
         nheads, num_kv_heads, head_size, unidirectional, q_scaling,
         position_embedding_type, rotary_embedding_dim, rotary_embedding_base,
         rotary_embedding_scale_type, rotary_embedding_scale,
-        rotary_embedding_max_positions, tp_size, tp_rank, context_fmha_type,
+        rotary_embedding_max_positions, rotary_embedding_yarn_extrapolation_factor,
+        rotary_embedding_yarn_attn_factor, rotary_embedding_yarn_beta_fast,
+        rotary_embedding_yarn_beta_slow, tp_size, tp_rank, context_fmha_type,
         multi_block_mode, kv_cache_quant_mode_field, remove_input_padding,
         mask_type, paged_kv_cache, tokens_per_block, pf_type,
         max_context_length, qkv_bias_enabled, do_cross_attention_field,
